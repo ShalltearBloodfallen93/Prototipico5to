@@ -1,0 +1,92 @@
+#Mapa de la cdmx (delitos, camaras, clusters, capas de calor y popups)
+import pandas as pd
+import folium
+from folium.plugins import MarkerCluster, HeatMap
+
+# se delimita zona en este caso cdmx
+m = folium.Map(location=[19.35867, -99.20329], zoom_start=12)
+
+# se crea un grupo de capas para las camaras
+capa_camaras = folium.FeatureGroup(name='Cámaras de seguridad').add_to(m)
+
+# se definen los tips de delito
+delitos_conservar = ['ROBO DE MOTOCICLETA CON VIOLENCIA', 'ROBO DE MOTOCICLETA SIN VIOLENCIA', 'ROBO A NEGOCIO CON VIOLENCIA',
+                     "ROBO A REPARTIDOR CON VIOLENCIA", "ROBO A REPARTIDOR SIN VIOLENCIA",
+                     "ROBO A TRANSEUNTE EN VIA PUBLICA CON VIOLENCIA", "ROBO A TRANSEUNTE EN VIA PUBLICA SIN VIOLNECIA",
+                     "ROBO DE VEHICULO DE SERVICIO PARTICULAR CON VIOLENCIA", "ROBO DE VEHICULO DE SERVICIO PARTICULAR SIN VIOLENCIA",
+                     "VIOLACION"]  # Ejemplo
+
+# funcion para agregar delitos de cada año en una capa en especifico
+def agregar_delitos_por_ano(archivo_csv, nombre_capa, color_icono):
+    capa_delitos = folium.FeatureGroup(name=f'Delitos {nombre_capa}').add_to(m)
+    coordenadas_calor = []  # Lista para almacenar las coordenadas para la capa de calor
+
+    datos = pd.read_csv(archivo_csv, header=None, names=["latitud", "longitud", "tipo_delito", "fecha", "hora", "calle"])
+
+    # se filtran los delitos solo de interes
+    datos = datos[datos['tipo_delito'].isin(delitos_conservar)]
+
+    # se le da un formato correcto a la fecha y hora
+    datos['fecha'] = pd.to_datetime(datos['fecha'], format='%d/%m/%Y').dt.strftime('%Y-%m-%d')
+    datos['hora'] = pd.to_datetime(datos['hora']).dt.strftime('%H:%M')
+
+    # agregar coordenadas a la lista de capa de calor
+    coordenadas_calor.extend(datos[['latitud', 'longitud']].values.tolist())
+
+    # crear un cluster de marcadores para agrupar los delitos
+    marker_cluster = MarkerCluster().add_to(capa_delitos)
+
+    for _, row in datos.iterrows():
+        tipo_delito = row['tipo_delito'] if pd.notnull(row['tipo_delito']) else 'Desconocido'
+        hora = row['hora'] if pd.notnull(row['hora']) else 'Desconocida'
+        calle = row['calle'] if pd.notnull(row['calle']) else 'Desconocida'
+
+        popup_text = f"Delito: {tipo_delito}<br>Hora: {hora}<br>Calle: {calle}"
+        popup = folium.Popup(popup_text, max_width=300)
+
+        marker = folium.Marker(
+            [row['latitud'], row['longitud']],
+            icon=folium.Icon(color=color_icono, icon='exclamation-triangle', prefix='fa'),
+            popup=popup
+        )
+        marker_cluster.add_child(marker)
+
+    # agregar la capa de calor para los años
+    HeatMap(data=coordenadas_calor, radius=15, blur=10).add_to(m)
+
+# agregar datos de delitos por año con diferentes colores y capas de calor del 2021 al 2024
+agregar_delitos_por_ano('delitos_coordenadas.csv', '2021', 'red')
+agregar_delitos_por_ano('delitos_coordenadas2022.csv', '2022', 'orange')
+agregar_delitos_por_ano('delitos_coordenadas2023.csv', '2023', 'purple')
+agregar_delitos_por_ano('delitos_coordenadas2024.csv', '2024', 'blue')
+
+# se leen las coordenadas del poligono desde el archivo y agregarlo al mapa
+datos_poligono = pd.read_csv('coordenadas_poligonoajust.csv', header=None, names=["latitud", "longitud"])
+coordenadas_poligono = datos_poligono[['latitud', 'longitud']].values.tolist()
+folium.Polygon(locations=coordenadas_poligono, color='black', fill=True, fill_opacity=0.05).add_to(m)
+
+# se leen los datos de las camaras y se le agrega un radio se vision hipotetico
+datos_camaras = pd.read_csv('coordenadas_AO.csv', header=None, names=["latitud", "longitud"])
+for index, row in datos_camaras.iterrows():
+    popup_text_camara = f"Cámara de seguridad en lat: {row['latitud']}, long: {row['longitud']}"
+    folium.Marker(
+        [row['latitud'], row['longitud']],
+        icon=folium.Icon(color='blue', icon='camera', prefix='fa'),
+        popup=folium.Popup(popup_text_camara, max_width=300)
+    ).add_to(capa_camaras)
+
+    folium.Circle(
+        location=[row['latitud'], row['longitud']],
+        radius=100,  # ajustar el radio si es necesario
+        color='green',
+        fill=True,
+        fill_opacity=0.3
+    ).add_to(capa_camaras)
+
+# se agrega el control de capas para alternar la visualizacion de cada capa de delitos por año y las cámaras
+folium.LayerControl().add_to(m)
+
+# mostrar el mapa en un archivo html
+#m.save('mapa_interactivo_con_calor_por_año.html')
+
+m
